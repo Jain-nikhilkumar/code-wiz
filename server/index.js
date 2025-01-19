@@ -1,4 +1,4 @@
-// Backend server with advanced real-time collaboration, file management, and code execution
+// Updated Backend server with advanced real-time collaboration, file management, and code execution
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
@@ -33,18 +33,26 @@ if (!fs.existsSync(storagePath)) {
   fs.mkdirSync(storagePath);
 }
 
-// Utility to save files to disk
+// Utility to save files and folders to disk
 const saveFile = (projectId, fileName, content) => {
   const projectDir = `${storagePath}/${projectId}`;
   if (!fs.existsSync(projectDir)) {
-    fs.mkdirSync(projectDir);
+    fs.mkdirSync(projectDir, { recursive: true });
   }
   fs.writeFileSync(`${projectDir}/${fileName}`, content);
+};
+
+const saveFolder = (projectId, folderName) => {
+  const folderPath = `${storagePath}/${projectId}/${folderName}`;
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
 };
 
 // In-memory storage for projects (enhanced with persistence)
 const projects = {};
 
+console.log(projects);
 // Socket.IO events
 io.on("connection", (socket) => {
   console.log("A user connected", socket.id);
@@ -58,11 +66,15 @@ io.on("connection", (socket) => {
     if (!projects[projectId]) {
       const projectDir = `${storagePath}/${projectId}`;
       if (fs.existsSync(projectDir)) {
-        const files = fs.readdirSync(projectDir);
+        const files = fs.readdirSync(projectDir, { withFileTypes: true });
         projects[projectId] = { files: {} };
         files.forEach((file) => {
-          const content = fs.readFileSync(`${projectDir}/${file}`, "utf-8");
-          projects[projectId].files[file] = content;
+          if (file.isFile()) {
+            const content = fs.readFileSync(`${projectDir}/${file.name}`, "utf-8");
+            projects[projectId].files[file.name] = content;
+          } else if (file.isDirectory()) {
+            projects[projectId].files[`${file.name}/`] = null;
+          }
         });
       } else {
         projects[projectId] = { files: {} };
@@ -70,7 +82,7 @@ io.on("connection", (socket) => {
     }
 
     // Sync project state
-    socket.emit("projectSync", projects[projectId]);
+    socket.emit("projectSync", { files: Object.keys(projects[projectId].files || {}) });
   });
 
   // Handle file updates
@@ -88,6 +100,20 @@ io.on("connection", (socket) => {
 
     // Save file to disk
     saveFile(projectId, fileName, content);
+  });
+
+  // Handle folder creation
+  socket.on("createFolder", ({ projectId, folderName }) => {
+    if (!projects[projectId]) {
+      projects[projectId] = { files: {} };
+    }
+    projects[projectId].files[`${folderName}/`] = null;
+
+    // Broadcast changes to other users in the project
+    socket.to(projectId).emit("folderCreated", { folderName });
+
+    // Save folder to disk
+    saveFolder(projectId, folderName);
   });
 
   // Execute code
@@ -120,9 +146,10 @@ app.get("/projects/:projectId", (req, res) => {
   const { projectId } = req.params;
   const projectDir = `${storagePath}/${projectId}`;
   if (fs.existsSync(projectDir)) {
-    const files = fs.readdirSync(projectDir).map((file) => ({
-      name: file,
-      content: fs.readFileSync(`${projectDir}/${file}`, "utf-8")
+    const files = fs.readdirSync(projectDir, { withFileTypes: true }).map((file) => ({
+      name: file.name,
+      isFolder: file.isDirectory(),
+      content: file.isFile() ? fs.readFileSync(`${projectDir}/${file.name}`, "utf-8") : null
     }));
     res.json({ projectId, files });
   } else {

@@ -1,62 +1,44 @@
-// // index.js
-// const express = require('express');
-// const WebSocket = require('ws');
-// const cors = require('cors');
-
-// const app = express();
-// const server = app.listen(3000, () => {
-//   console.log('Server is running on port 3000');
-// });
-
-// app.use(cors()); // Enable cross-origin requests
-
-// // WebSocket setup
-// const wss = new WebSocket.Server({ server });
-
-// wss.on('connection', (ws) => {
-//   console.log('A user connected');
-  
-//   ws.on('message', (message) => {
-//     // Broadcast the received message to all other clients
-//     wss.clients.forEach((client) => {
-//       if (client !== ws && client.readyState === WebSocket.OPEN) {
-//         client.send(message);
-//       }
-//     });
-//   });
-  
-//   ws.on('close', () => {
-//     console.log('A user disconnected');
-//   });
-// });
-// index.js
-const express = require('express');
-const WebSocket = require('ws');
-const cors = require('cors');
+const express = require("express");
+const http = require("http");
+const cors = require("cors");
+const { Server } = require("socket.io");
 
 const app = express();
-const server = app.listen(3001,() => {
-  console.log('Server is running on port 3001');
+
+// Enable CORS
+app.use(cors());
+
+// Create an HTTP server for socket.io
+const server = http.createServer(app);
+
+// Initialize socket.io with CORS configuration
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3001", // Client origin (React app)
+    methods: ["GET", "POST"]
+  }
 });
 
-app.use(cors()); // Enable cross-origin requests
+// Handling socket connections
+io.on("connection", (socket) => {
+  console.log("A user connected");
 
-// WebSocket setup
-const wss = new WebSocket.Server({ server });
+  // Broadcast when a user disconnects
+  socket.on("disconnect", () => {
+    console.log("A user disconnected");
+  });
+  // Listen for code changes and broadcast to other users
+  socket.on("codeChange", (newCode) => {
+    socket.broadcast.emit("codeChange", newCode);
+  });
 
-wss.on('connection', (ws) => {
-  console.log('A user connected');
-  
-  ws.on('message', (message) => {
-    // Broadcast the received message to all other clients
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
+  // Handle text updates (message sent from client)
+  socket.on("update-text", (data) => {
+    socket.broadcast.emit("text-updated", data); // Broadcast the updated text to other clients
   });
-  
-  ws.on('close', () => {
-    console.log('A user disconnected');
-  });
+});
+
+// Start the server
+server.listen(3000, () => {
+  console.log("Server is running on port 3000");
 });

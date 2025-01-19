@@ -10,8 +10,11 @@
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
+    "dockerode": "^4.0.4",
     "express": "^4.21.2",
+    "ioredis": "^5.4.2",
     "socket.io": "^4.8.1",
+    "uuid": "^11.0.5",
     "websocket": "^1.0.35",
     "ws": "^8.18.0"
   },

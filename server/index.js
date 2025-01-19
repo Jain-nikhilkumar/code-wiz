@@ -1,44 +1,137 @@
+// Backend server with advanced real-time collaboration, file management, and code execution
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+const { v4: uuidv4 } = require("uuid");
+const Redis = require("ioredis");
+const Docker = require("dockerode");
+const fs = require("fs");
 
 const app = express();
-
-// Enable CORS
-app.use(cors());
-
-// Create an HTTP server for socket.io
 const server = http.createServer(app);
-
-// Initialize socket.io with CORS configuration
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:3001", // Client origin (React app)
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
 
-// Handling socket connections
+// Redis for real-time data synchronization
+const redis = new Redis();
+
+// Docker for isolated code execution
+const docker = new Docker();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Persistent file storage
+const storagePath = "./projects";
+if (!fs.existsSync(storagePath)) {
+  fs.mkdirSync(storagePath);
+}
+
+// Utility to save files to disk
+const saveFile = (projectId, fileName, content) => {
+  const projectDir = `${storagePath}/${projectId}`;
+  if (!fs.existsSync(projectDir)) {
+    fs.mkdirSync(projectDir);
+  }
+  fs.writeFileSync(`${projectDir}/${fileName}`, content);
+};
+
+// In-memory storage for projects (enhanced with persistence)
+const projects = {};
+
+// Socket.IO events
 io.on("connection", (socket) => {
-  console.log("A user connected");
+  console.log("A user connected", socket.id);
 
-  // Broadcast when a user disconnects
+  // Join a project room
+  socket.on("joinProject", (projectId) => {
+    socket.join(projectId);
+    console.log(`User ${socket.id} joined project ${projectId}`);
+
+    // Load project state from disk if not in memory
+    if (!projects[projectId]) {
+      const projectDir = `${storagePath}/${projectId}`;
+      if (fs.existsSync(projectDir)) {
+        const files = fs.readdirSync(projectDir);
+        projects[projectId] = { files: {} };
+        files.forEach((file) => {
+          const content = fs.readFileSync(`${projectDir}/${file}`, "utf-8");
+          projects[projectId].files[file] = content;
+        });
+      } else {
+        projects[projectId] = { files: {} };
+      }
+    }
+
+    // Sync project state
+    socket.emit("projectSync", projects[projectId]);
+  });
+
+  // Handle file updates
+  socket.on("updateFile", ({ projectId, fileName, content }) => {
+    if (!projects[projectId]) {
+      projects[projectId] = { files: {} };
+    }
+    projects[projectId].files[fileName] = content;
+
+    // Broadcast changes to other users in the project
+    socket.to(projectId).emit("fileUpdated", { fileName, content });
+
+    // Persist changes in Redis
+    redis.hset(projectId, fileName, content);
+
+    // Save file to disk
+    saveFile(projectId, fileName, content);
+  });
+
+  // Execute code
+  socket.on("runCode", async ({ language, code }) => {
+    try {
+      const container = await docker.createContainer({
+        Image: `${language}:latest`,
+        Cmd: ["sh", "-c", `echo '${code}' | ${language}`],
+        Tty: false
+      });
+
+      await container.start();
+      const output = await container.logs({ stdout: true, stderr: true });
+      await container.remove();
+
+      socket.emit("codeOutput", output);
+    } catch (error) {
+      console.error(error);
+      socket.emit("codeOutput", `Error: ${error.message}`);
+    }
+  });
+
   socket.on("disconnect", () => {
-    console.log("A user disconnected");
-  });
-  // Listen for code changes and broadcast to other users
-  socket.on("codeChange", (newCode) => {
-    socket.broadcast.emit("codeChange", newCode);
-  });
-
-  // Handle text updates (message sent from client)
-  socket.on("update-text", (data) => {
-    socket.broadcast.emit("text-updated", data); // Broadcast the updated text to other clients
+    console.log("A user disconnected", socket.id);
   });
 });
 
-// Start the server
-server.listen(3000, () => {
-  console.log("Server is running on port 3000");
+// REST API to fetch project details
+app.get("/projects/:projectId", (req, res) => {
+  const { projectId } = req.params;
+  const projectDir = `${storagePath}/${projectId}`;
+  if (fs.existsSync(projectDir)) {
+    const files = fs.readdirSync(projectDir).map((file) => ({
+      name: file,
+      content: fs.readFileSync(`${projectDir}/${file}`, "utf-8")
+    }));
+    res.json({ projectId, files });
+  } else {
+    res.status(404).json({ message: "Project not found" });
+  }
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });

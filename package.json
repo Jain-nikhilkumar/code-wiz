@@ -13,10 +13,13 @@
     "dockerode": "^4.0.4",
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
+    "sharedb": "^5.1.1",
     "socket.io": "^4.8.1",
     "uuid": "^11.0.5",
     "websocket": "^1.0.35",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "y-websocket": "^2.1.0",
+    "yjs": "^13.6.23"
   },
   "description": ""
 }

@@ -17,23 +17,17 @@ const io = new Server(server, {
   }
 });
 
-// Redis for real-time data synchronization
 const redis = new Redis();
-
-// Docker for isolated code execution
 const docker = new Docker();
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Persistent file storage
 const storagePath = "./projects";
 if (!fs.existsSync(storagePath)) {
   fs.mkdirSync(storagePath);
 }
 
-// Utility to save files and folders to disk
 const saveFile = (projectId, fileName, content) => {
   const projectDir = `${storagePath}/${projectId}`;
   if (!fs.existsSync(projectDir)) {
@@ -49,9 +43,7 @@ const saveFolder = (projectId, folderName) => {
   }
 };
 
-// In-memory storage for projects (enhanced with persistence)
 const projects = {};
-
 console.log(projects);
 // Socket.IO events
 io.on("connection", (socket) => {
@@ -112,7 +104,6 @@ io.on("connection", (socket) => {
     // Broadcast changes to other users in the project
     socket.to(projectId).emit("folderCreated", { folderName });
 
-    // Save folder to disk
     saveFolder(projectId, folderName);
   });
 
